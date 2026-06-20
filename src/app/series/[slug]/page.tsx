@@ -119,6 +119,14 @@ type SeriesDetailPageProps = {
   }>;
 };
 
+function normalizeScheduleValue(value: string | null | undefined) {
+  if (!value || value === "-") {
+    return null;
+  }
+
+  return Number.isFinite(Date.parse(value)) ? value : null;
+}
+
 export default async function SeriesDetailPage({
   params,
 }: SeriesDetailPageProps) {
@@ -139,10 +147,11 @@ export default async function SeriesDetailPage({
     episodeArchives,
   } = detail;
   const orderedEpisodes = [...episodes].sort((left, right) => right.order - left.order);
-  const nextFreeAt =
-    waitFreeTicket?.nextUnlockAt ??
-    nextFreeEpisode?.freeAt ??
-    null;
+  const nextFreeAt = normalizeScheduleValue(
+    waitFreeTicket?.nextUnlockAt ?? nextFreeEpisode?.freeAt ?? null,
+  );
+  const fallbackNextCheck = normalizeScheduleValue(summary.nextCheck);
+  const nextScheduleValue = nextFreeAt ?? fallbackNextCheck;
   const labels = {
     finished: locale === "ko" ? "완결" : "Finished",
     ongoing: locale === "ko" ? "연재중" : "Ongoing",
@@ -155,6 +164,7 @@ export default async function SeriesDetailPage({
     free: locale === "ko" ? "무료 공개" : "Free",
     total: locale === "ko" ? "전체 회차" : "Total",
     nextFree: locale === "ko" ? "다음 무료 공개" : "Next Free",
+    nextCheck: locale === "ko" ? "다음 점검" : "Next Check",
     folder: locale === "ko" ? "저장경로" : "Storage Path",
     number: locale === "ko" ? "번호" : "No.",
     title: locale === "ko" ? "제목" : "Title",
@@ -245,10 +255,10 @@ export default async function SeriesDetailPage({
                 </strong>
               </article>
               <article className="series-stat-card">
-                <span>{labels.nextFree}</span>
+                <span>{nextFreeAt ? labels.nextFree : labels.nextCheck}</span>
                 <strong>
                   <LocalizedDateTime
-                    value={nextFreeAt}
+                    value={nextScheduleValue}
                     locale={locale}
                   />
                 </strong>
