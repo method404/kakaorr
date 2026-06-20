@@ -182,7 +182,7 @@ export function resolveKakaoAccessLabel(
     return locale === "ko" ? "기다무" : "Wait Free";
   }
 
-  if ((item.freeSlideCount ?? 0) > 0) {
+  if ((item.freeSlideCount ?? 0) > 1) {
     return locale === "ko" ? "연재무료" : "Free Run";
   }
 

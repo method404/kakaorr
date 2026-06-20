@@ -13,10 +13,11 @@ import { buildKakaoClientImageUrl } from "@/lib/kakao-image-url";
 import { getStoredSeriesDetail } from "@/lib/kakao-library-store";
 import { getLocale } from "@/lib/locale";
 
-function getEpisodeStateLabel(
+function getEpisodeState(
   episode: {
     isFree: boolean;
     freeAt: string | null;
+    waitfreeBlocked?: boolean;
   },
   archiveStatus:
     | "pending"
@@ -27,31 +28,63 @@ function getEpisodeStateLabel(
     | null,
   locale: "ko" | "en",
 ) {
+  const now = Date.now();
+  const freeAtTime = episode.freeAt ? new Date(episode.freeAt).getTime() : Number.NaN;
+  const hasFutureFreeAt = Number.isFinite(freeAtTime) && freeAtTime > now;
+
   if (archiveStatus === "downloaded") {
-    return locale === "ko" ? "저장 완료" : "Downloaded";
+    return {
+      label: locale === "ko" ? "저장 완료" : "Downloaded",
+      className: "is-downloaded",
+    } as const;
   }
 
   if (archiveStatus === "downloading") {
-    return locale === "ko" ? "저장 중" : "Downloading";
+    return {
+      label: locale === "ko" ? "저장 중" : "Downloading",
+      className: "is-downloading",
+    } as const;
   }
 
   if (archiveStatus === "pending") {
-    return locale === "ko" ? "저장 대기" : "Queued";
+    return {
+      label: locale === "ko" ? "저장 대기" : "Queued",
+      className: "is-pending",
+    } as const;
   }
 
   if (archiveStatus === "failed") {
-    return locale === "ko" ? "저장 실패" : "Failed";
+    return {
+      label: locale === "ko" ? "저장 실패" : "Failed",
+      className: "is-failed",
+    } as const;
   }
 
   if (episode.isFree) {
-    return locale === "ko" ? "미저장" : "Missing";
+    return {
+      label: locale === "ko" ? "미저장" : "Missing",
+      className: "is-preview",
+    } as const;
   }
 
-  if (episode.freeAt) {
-    return locale === "ko" ? "공개 예정" : "Scheduled";
+  if (hasFutureFreeAt) {
+    return {
+      label: locale === "ko" ? "공개 예정" : "Scheduled",
+      className: "is-preview",
+    } as const;
   }
 
-  return locale === "ko" ? "잠김" : "Locked";
+  if (episode.waitfreeBlocked) {
+    return {
+      label: locale === "ko" ? "유료" : "Paid",
+      className: "is-paid",
+    } as const;
+  }
+
+  return {
+    label: locale === "ko" ? "잠김" : "Locked",
+    className: "is-preview",
+  } as const;
 }
 
 function getEpisodePublicDate(
@@ -59,9 +92,21 @@ function getEpisodePublicDate(
     isFree: boolean;
     freeAt: string | null;
     releasedAt: string | null;
+    waitfreeBlocked?: boolean;
   },
 ) {
+  const freeAtTime = episode.freeAt ? new Date(episode.freeAt).getTime() : Number.NaN;
+  const hasFutureFreeAt = Number.isFinite(freeAtTime) && freeAtTime > Date.now();
+
   if (episode.isFree) {
+    return episode.releasedAt ?? episode.freeAt;
+  }
+
+  if (hasFutureFreeAt) {
+    return episode.freeAt;
+  }
+
+  if (episode.waitfreeBlocked) {
     return episode.releasedAt ?? episode.freeAt;
   }
 
@@ -85,8 +130,19 @@ export default async function SeriesDetailPage({
     notFound();
   }
 
-  const { summary, overview, episodes, nextFreeEpisode, episodeArchives } = detail;
+  const {
+    summary,
+    overview,
+    episodes,
+    nextFreeEpisode,
+    waitFreeTicket,
+    episodeArchives,
+  } = detail;
   const orderedEpisodes = [...episodes].sort((left, right) => right.order - left.order);
+  const nextFreeAt =
+    waitFreeTicket?.nextUnlockAt ??
+    nextFreeEpisode?.freeAt ??
+    null;
   const labels = {
     finished: locale === "ko" ? "완결" : "Finished",
     ongoing: locale === "ko" ? "연재중" : "Ongoing",
@@ -192,7 +248,7 @@ export default async function SeriesDetailPage({
                 <span>{labels.nextFree}</span>
                 <strong>
                   <LocalizedDateTime
-                    value={nextFreeEpisode?.freeAt ?? summary.nextCheck}
+                    value={nextFreeAt}
                     locale={locale}
                   />
                 </strong>
@@ -251,22 +307,13 @@ export default async function SeriesDetailPage({
                         {(() => {
                           const archive = episodeArchives[episode.order];
                           const archiveStatus = archive?.crawl.status ?? null;
-                          const statusClass =
-                            archiveStatus === "downloaded"
-                              ? " is-downloaded"
-                              : archiveStatus === "downloading"
-                                ? " is-downloading"
-                                : archiveStatus === "pending"
-                                  ? " is-pending"
-                                  : archiveStatus === "failed"
-                                    ? " is-failed"
-                                    : " is-preview";
+                          const state = getEpisodeState(episode, archiveStatus, locale);
 
                           return (
                         <span
-                              className={`series-episode-status${statusClass}`}
+                              className={`series-episode-status ${state.className}`}
                         >
-                              {getEpisodeStateLabel(episode, archiveStatus, locale)}
+                              {state.label}
                         </span>
                           );
                         })()}

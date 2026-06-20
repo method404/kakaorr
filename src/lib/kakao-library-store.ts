@@ -139,6 +139,7 @@ export type StoredSeriesDetail = {
   freeEpisodes: KakaoSeriesEpisode[];
   lockedEpisodes: KakaoSeriesEpisode[];
   nextFreeEpisode: KakaoSeriesEpisode | null;
+  waitFreeTicket: KakaoSeriesSnapshot["waitFreeTicket"];
   episodeArchives: Record<number, StoredKakaoEpisodeArchiveManifest | null>;
 };
 
@@ -1433,6 +1434,7 @@ export async function getStoredSeriesDetail(
     freeEpisodes: snapshot.freeEpisodes,
     lockedEpisodes: snapshot.lockedEpisodes,
     nextFreeEpisode: snapshot.nextFreeEpisode,
+    waitFreeTicket: snapshot.waitFreeTicket,
     episodeArchives,
   };
 }

@@ -340,9 +340,18 @@ function sortEpisodesAscending(episodes: KakaoSeriesEpisode[]) {
 }
 
 export function getNextKakaoFreeEpisode(episodes: KakaoSeriesEpisode[]) {
+  const now = Date.now();
+
   return (
     episodes
-      .filter((episode) => !episode.isFree && episode.freeAt)
+      .filter((episode) => {
+        if (episode.isFree || !episode.freeAt) {
+          return false;
+        }
+
+        const freeAtTime = new Date(episode.freeAt).getTime();
+        return Number.isFinite(freeAtTime) && freeAtTime > now;
+      })
       .sort((left, right) => {
         return (
           new Date(left.freeAt ?? "").getTime() -

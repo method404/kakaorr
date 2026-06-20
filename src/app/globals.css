@@ -2643,6 +2643,11 @@ textarea {
   color: #fff5d8;
 }
 
+.series-episode-status.is-paid {
+  background: #6b2228;
+  color: #ffe8ea;
+}
+
 .series-episode-status.is-failed {
   background: #5a2b2b;
   color: #ffe7e7;
