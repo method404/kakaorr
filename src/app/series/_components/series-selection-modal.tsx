@@ -3,7 +3,7 @@
 import Image from "next/image";
 import { useEffect, useState, useTransition } from "react";
 import { AdultBadge } from "@/app/_components/adult-badge";
-import { buildKakaoClientImageUrl } from "@/lib/kakao-request";
+import { buildKakaoClientImageUrl } from "@/lib/kakao-image-url";
 import type { Locale } from "@/lib/locale";
 import type { MonitorMode } from "@/lib/types";
 

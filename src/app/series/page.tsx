@@ -6,8 +6,8 @@ import { PageAutoRefresh } from "@/app/_components/page-auto-refresh";
 import { FinishedBadge } from "@/app/_components/finished-badge";
 import { SeriesCardManageMenu } from "@/app/series/_components/series-card-manage-menu";
 import { SeriesLibraryActions } from "@/app/series/_components/series-library-actions";
+import { buildKakaoClientImageUrl } from "@/lib/kakao-image-url";
 import { getStoredSeriesSummaries } from "@/lib/kakao-library-store";
-import { buildKakaoClientImageUrl } from "@/lib/kakao-request";
 import { getLocale } from "@/lib/locale";
 
 type SeriesSortKey = "title" | "updated" | "added";

@@ -4,7 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { useDeferredValue, useEffect, useRef, useState } from "react";
 import { AdultBadge } from "@/app/_components/adult-badge";
-import { buildKakaoClientImageUrl } from "@/lib/kakao-request";
+import { buildKakaoClientImageUrl } from "@/lib/kakao-image-url";
 import type { KakaoSearchResult } from "@/lib/kakao-search";
 import type { Locale } from "@/lib/locale";
 

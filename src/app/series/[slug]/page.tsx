@@ -9,8 +9,8 @@ import { SeriesDetailAutoRefresh } from "@/app/series/_components/series-detail-
 import { SeriesEpisodeManageMenu } from "@/app/series/_components/series-episode-manage-menu";
 import { OpenStoragePathButton } from "@/app/series/_components/open-storage-path-button";
 import { SeriesSynopsis } from "@/app/series/_components/series-synopsis";
+import { buildKakaoClientImageUrl } from "@/lib/kakao-image-url";
 import { getStoredSeriesDetail } from "@/lib/kakao-library-store";
-import { buildKakaoClientImageUrl } from "@/lib/kakao-request";
 import { getLocale } from "@/lib/locale";
 
 function getEpisodeStateLabel(

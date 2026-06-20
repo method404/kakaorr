@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { AdultBadge } from "@/app/_components/adult-badge";
 import { SeriesSelectionModal } from "@/app/series/_components/series-selection-modal";
-import { buildKakaoClientImageUrl } from "@/lib/kakao-request";
+import { buildKakaoClientImageUrl } from "@/lib/kakao-image-url";
 import type { KakaoSeriesFilter, WeekdaySection } from "@/lib/kakao-weekday";
 import type { Locale } from "@/lib/locale";
 import type { MonitorMode } from "@/lib/types";
