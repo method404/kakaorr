@@ -166,18 +166,19 @@ type WaitFreeUnlockState = {
 declare global {
   var __kakaorrRecentJobs: JobRun[] | undefined;
   var __kakaorrStorageSyncQueue: SeriesStorageSyncTask[] | undefined;
-  var __kakaorrStorageSyncRunning: boolean | undefined;
-  var __kakaorrStorageSyncCurrentRun:
-    | {
+  var __kakaorrStorageSyncCurrentRuns:
+    | Array<{
         task: SeriesStorageSyncTask;
         startedAt: string;
-      }
+      }>
     | undefined;
 }
 
 const DEFAULT_LIBRARY_ROOT_FOLDER = "./storage/webtoons";
 const DEFAULT_CHECK_INTERVAL_HOURS = 24;
 const MAX_RECENT_JOBS = 12;
+const DEFAULT_STORAGE_SYNC_CONCURRENCY = 2;
+const DEFAULT_IMAGE_DOWNLOAD_CONCURRENCY = 3;
 
 function getDataRoot() {
   return path.join(process.cwd(), "data");
@@ -304,16 +305,50 @@ function getStorageSyncQueue() {
   return globalThis.__kakaorrStorageSyncQueue;
 }
 
-function isQueuedSeries(titleId: number) {
-  const current = globalThis.__kakaorrStorageSyncCurrentRun;
-
-  if (current?.task.snapshot.overview.seriesId === titleId) {
-    return true;
+function getStorageSyncCurrentRuns() {
+  if (!globalThis.__kakaorrStorageSyncCurrentRuns) {
+    globalThis.__kakaorrStorageSyncCurrentRuns = [];
   }
 
-  return getStorageSyncQueue().some(
-    (task) => task.snapshot.overview.seriesId === titleId,
+  return globalThis.__kakaorrStorageSyncCurrentRuns;
+}
+
+function isQueuedSeries(titleId: number) {
+  const currentRuns = getStorageSyncCurrentRuns();
+
+  return (
+    currentRuns.some(
+      (run) => run.task.snapshot.overview.seriesId === titleId,
+    ) ||
+    getStorageSyncQueue().some(
+      (task) => task.snapshot.overview.seriesId === titleId,
+    )
   );
+}
+
+function getStorageSyncConcurrency() {
+  const rawValue = Number(
+    process.env.KAKAORR_STORAGE_SYNC_CONCURRENCY ?? DEFAULT_STORAGE_SYNC_CONCURRENCY,
+  );
+
+  if (!Number.isFinite(rawValue) || rawValue < 1) {
+    return DEFAULT_STORAGE_SYNC_CONCURRENCY;
+  }
+
+  return Math.min(6, Math.trunc(rawValue));
+}
+
+function getImageDownloadConcurrency() {
+  const rawValue = Number(
+    process.env.KAKAORR_IMAGE_DOWNLOAD_CONCURRENCY ??
+      DEFAULT_IMAGE_DOWNLOAD_CONCURRENCY,
+  );
+
+  if (!Number.isFinite(rawValue) || rawValue < 1) {
+    return DEFAULT_IMAGE_DOWNLOAD_CONCURRENCY;
+  }
+
+  return Math.min(8, Math.trunc(rawValue));
 }
 
 function getSeriesCheckHourLocal() {
@@ -602,6 +637,39 @@ function sleep(ms: number) {
   });
 }
 
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  mapper: (item: T, index: number) => Promise<R>,
+) {
+  if (items.length === 0) {
+    return [] as R[];
+  }
+
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+
+  async function worker() {
+    while (true) {
+      const currentIndex = nextIndex;
+      nextIndex += 1;
+
+      if (currentIndex >= items.length) {
+        return;
+      }
+
+      results[currentIndex] = await mapper(items[currentIndex], currentIndex);
+    }
+  }
+
+  const workerCount = Math.min(concurrency, items.length);
+  await Promise.all(
+    Array.from({ length: workerCount }, () => worker()),
+  );
+
+  return results;
+}
+
 async function fetchBinary(url: string, referer: string) {
   const response = await fetchKakao(url, {
     headers: {
@@ -672,16 +740,20 @@ async function writeEpisodeDownloadFiles(
 
   let downloadedImageCount = 0;
 
-  for (const file of viewerData.files) {
-    const extension = getEpisodeImageExtension(file.secureUrl);
-    const imagePath = path.join(
-      manifest.storage.imagesDir,
-      `${String(file.no).padStart(3, "0")}${extension}`,
-    );
-    const imageBytes = await downloadEpisodeImageBytes(titleId, episode, file);
-    await writeBinaryFile(imagePath, imageBytes);
-    downloadedImageCount += 1;
-  }
+  await mapWithConcurrency(
+    viewerData.files,
+    getImageDownloadConcurrency(),
+    async (file) => {
+      const extension = getEpisodeImageExtension(file.secureUrl);
+      const imagePath = path.join(
+        manifest.storage.imagesDir,
+        `${String(file.no).padStart(3, "0")}${extension}`,
+      );
+      const imageBytes = await downloadEpisodeImageBytes(titleId, episode, file);
+      await writeBinaryFile(imagePath, imageBytes);
+      downloadedImageCount += 1;
+    },
+  );
 
   return downloadedImageCount;
 }
@@ -1212,23 +1284,30 @@ function enqueueSeriesStorageSync(task: SeriesStorageSyncTask) {
 }
 
 async function runSeriesStorageSyncQueue() {
-  if (globalThis.__kakaorrStorageSyncRunning) {
-    return;
-  }
-
   const queue = getStorageSyncQueue();
-  const nextTask = queue.shift();
+  const currentRuns = getStorageSyncCurrentRuns();
 
-  if (!nextTask) {
-    return;
+  while (currentRuns.length < getStorageSyncConcurrency()) {
+    const nextTask = queue.shift();
+
+    if (!nextTask) {
+      return;
+    }
+
+    const startedAt = new Date().toISOString();
+    currentRuns.push({
+      task: nextTask,
+      startedAt,
+    });
+
+    void processSeriesStorageSyncTask(nextTask, startedAt);
   }
+}
 
-  globalThis.__kakaorrStorageSyncRunning = true;
-  globalThis.__kakaorrStorageSyncCurrentRun = {
-    task: nextTask,
-    startedAt: new Date().toISOString(),
-  };
-
+async function processSeriesStorageSyncTask(
+  nextTask: SeriesStorageSyncTask,
+  startedAt: string,
+) {
   try {
     const index = await readLibraryIndex();
     const existing = index.items.find(
@@ -1261,7 +1340,7 @@ async function runSeriesStorageSyncQueue() {
       trigger: nextTask.trigger,
       status: storageSync.failedEpisodes > 0 ? "warning" : "success",
       itemsProcessed: storageSync.downloadedEpisodes,
-      startedAt: globalThis.__kakaorrStorageSyncCurrentRun.startedAt,
+      startedAt,
       finishedAt: new Date().toISOString(),
     });
   } catch (error) {
@@ -1271,17 +1350,15 @@ async function runSeriesStorageSyncQueue() {
       trigger: nextTask.trigger,
       status: "failed",
       itemsProcessed: 0,
-      startedAt: globalThis.__kakaorrStorageSyncCurrentRun.startedAt,
+      startedAt,
       finishedAt: new Date().toISOString(),
     });
     console.error("[kakaorr] series storage sync failed", error);
   } finally {
-    globalThis.__kakaorrStorageSyncRunning = false;
-    globalThis.__kakaorrStorageSyncCurrentRun = undefined;
-
-    if (queue.length > 0) {
-      void runSeriesStorageSyncQueue();
-    }
+    globalThis.__kakaorrStorageSyncCurrentRuns = getStorageSyncCurrentRuns().filter(
+      (run) => run.task.snapshot.overview.seriesId !== nextTask.snapshot.overview.seriesId,
+    );
+    void runSeriesStorageSyncQueue();
   }
 }
 
@@ -1477,39 +1554,39 @@ export async function deleteSeriesEpisodeInLibrary(titleId: number, order: numbe
 export async function refreshAllStoredSeries() {
   const index = await readLibraryIndex();
   const now = Date.now();
-  const refreshed: LibrarySeriesEntry[] = [];
-
-  for (const item of index.items) {
+  const eligibleItems = index.items.filter((item) => {
     if (
       !item.monitored ||
       (item.isFinished && (!item.isWaitFree || item.downloadedEpisodes >= item.totalEpisodes))
     ) {
-      continue;
+      return false;
     }
 
     if (item.nextCheck !== "-") {
       const nextCheck = Date.parse(item.nextCheck);
 
       if (Number.isFinite(nextCheck) && nextCheck > now) {
-        continue;
+        return false;
       }
     }
 
-    refreshed.push(await refreshSeriesInLibrary(item.titleId));
-  }
+    return true;
+  });
 
-  return refreshed;
+  return mapWithConcurrency(
+    eligibleItems,
+    getStorageSyncConcurrency(),
+    async (item) => refreshSeriesInLibrary(item.titleId),
+  );
 }
 
 export async function forceRefreshAllStoredSeries() {
   const index = await readLibraryIndex();
-  const refreshed: LibrarySeriesEntry[] = [];
-
-  for (const item of index.items) {
-    refreshed.push(await refreshSeriesInLibrary(item.titleId));
-  }
-
-  return refreshed;
+  return mapWithConcurrency(
+    index.items,
+    getStorageSyncConcurrency(),
+    async (item) => refreshSeriesInLibrary(item.titleId),
+  );
 }
 
 export async function unmonitorSeriesInLibrary(titleId: number) {
@@ -1602,9 +1679,7 @@ export async function updateSeriesSettings(input: UpdateSeriesSettingsInput) {
 
 export function getSeriesStorageSyncActivityTasks(): ActivityTask[] {
   const tasks: ActivityTask[] = [];
-  const activeRun = globalThis.__kakaorrStorageSyncCurrentRun;
-
-  if (activeRun) {
+  for (const activeRun of getStorageSyncCurrentRuns()) {
     tasks.push({
       id: `storage-running-${activeRun.task.snapshot.overview.seriesId}`,
       name: activeRun.task.snapshot.overview.title,
