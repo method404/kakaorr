@@ -1041,6 +1041,19 @@ async function readSeriesSnapshot(titleId: number) {
   return payload?.snapshot ?? null;
 }
 
+async function refreshSnapshotAfterStorageSync(
+  titleId: number,
+  fallbackSnapshot: KakaoSeriesSnapshot,
+) {
+  if (!fallbackSnapshot.overview.isWaitFree) {
+    return fallbackSnapshot;
+  }
+
+  const refreshedSnapshot = await fetchKakaoSeriesSnapshot(titleId, { locale: "ko" });
+  await writeSeriesSnapshot(refreshedSnapshot);
+  return refreshedSnapshot;
+}
+
 async function writeLibraryEntry(entry: LibrarySeriesEntry) {
   const index = await readLibraryIndex();
   const existingIndex = index.items.findIndex((item) => item.titleId === entry.titleId);
@@ -1197,7 +1210,11 @@ async function runSeriesStorageSyncQueue() {
       nextTask.snapshot.overview.seriesId,
     );
     const storageSync = await syncSeriesStorage(nextTask.snapshot, storagePath);
-    const entry = toLibraryEntry(nextTask.snapshot, {
+    const latestSnapshot = await refreshSnapshotAfterStorageSync(
+      nextTask.snapshot.overview.seriesId,
+      nextTask.snapshot,
+    );
+    const entry = toLibraryEntry(latestSnapshot, {
       rootFolder: nextTask.rootFolder,
       monitorMode: nextTask.monitorMode,
       existing,
@@ -1369,9 +1386,10 @@ export async function retrySeriesEpisodeInLibrary(titleId: number, order: number
     enabled: snapshot.overview.isWaitFree,
     attempted: false,
   });
+  const latestSnapshot = await refreshSnapshotAfterStorageSync(titleId, snapshot);
 
-  const stats = await getStoredSeriesStats(existing, snapshot);
-  const updatedEntry = toLibraryEntry(snapshot, {
+  const stats = await getStoredSeriesStats(existing, latestSnapshot);
+  const updatedEntry = toLibraryEntry(latestSnapshot, {
     rootFolder,
     monitorMode: existing.monitorMode,
     existing,
