@@ -1,0 +1,30 @@
+{
+  "name": "kakaorr",
+  "version": "0.1.0",
+  "private": true,
+  "bin": {
+    "kakaorr-kakao-bridge": "./scripts/kakao-session-bridge.mjs"
+  },
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "typecheck": "tsc --noEmit",
+    "kakao:bridge": "node scripts/kakao-session-bridge.mjs"
+  },
+  "dependencies": {
+    "next": "16.2.9",
+    "playwright": "^1.61.0",
+    "react": "19.2.4",
+    "react-dom": "19.2.4"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.9",
+    "typescript": "^5"
+  }
+}

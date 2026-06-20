@@ -1,0 +1,21 @@
+services:
+  kakaorr:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      # Optional: set these to match your NAS user for bind-mounted folders.
+      PUID: "${PUID:-}"
+      PGID: "${PGID:-}"
+    volumes:
+      - kakaorr-data:/app/data
+      - kakaorr-storage:/app/storage
+    restart: unless-stopped
+
+volumes:
+  kakaorr-data:
+  kakaorr-storage:
