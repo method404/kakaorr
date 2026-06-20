@@ -3,6 +3,7 @@
 import Image from "next/image";
 import { useEffect, useState, useTransition } from "react";
 import { AdultBadge } from "@/app/_components/adult-badge";
+import { buildKakaoClientImageUrl } from "@/lib/kakao-request";
 import type { Locale } from "@/lib/locale";
 import type { MonitorMode } from "@/lib/types";
 
@@ -222,7 +223,7 @@ export function SeriesSelectionModal({
             {item.isAdult ? <AdultBadge size={24} /> : null}
             {item.thumbnailUrl ? (
               <Image
-                src={item.thumbnailUrl}
+                src={buildKakaoClientImageUrl(item.thumbnailUrl)}
                 alt={item.title}
                 width={480}
                 height={623}

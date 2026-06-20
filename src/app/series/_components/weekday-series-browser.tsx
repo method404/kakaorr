@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { AdultBadge } from "@/app/_components/adult-badge";
 import { SeriesSelectionModal } from "@/app/series/_components/series-selection-modal";
+import { buildKakaoClientImageUrl } from "@/lib/kakao-request";
 import type { KakaoSeriesFilter, WeekdaySection } from "@/lib/kakao-weekday";
 import type { Locale } from "@/lib/locale";
 import type { MonitorMode } from "@/lib/types";
@@ -83,7 +84,7 @@ export function WeekdaySeriesBrowser({
                         ) : null}
                         {item.thumbnailUrl ? (
                           <Image
-                            src={item.thumbnailUrl}
+                            src={buildKakaoClientImageUrl(item.thumbnailUrl)}
                             alt={item.title}
                             width={480}
                             height={623}

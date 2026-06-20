@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { AdultBadge } from "@/app/_components/adult-badge";
 import { SeriesSelectionModal } from "@/app/series/_components/series-selection-modal";
+import { buildKakaoClientImageUrl } from "@/lib/kakao-request";
 import type { Locale } from "@/lib/locale";
 import type { MonitorMode } from "@/lib/types";
 
@@ -190,7 +191,7 @@ export function FinishedFreeBrowser({
                     {item.isAdult ? <AdultBadge /> : null}
                     {item.thumbnailUrl ? (
                       <Image
-                        src={item.thumbnailUrl}
+                        src={buildKakaoClientImageUrl(item.thumbnailUrl)}
                         alt={item.title}
                         width={132}
                         height={190}

@@ -4,6 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { useDeferredValue, useEffect, useRef, useState } from "react";
 import { AdultBadge } from "@/app/_components/adult-badge";
+import { buildKakaoClientImageUrl } from "@/lib/kakao-request";
 import type { KakaoSearchResult } from "@/lib/kakao-search";
 import type { Locale } from "@/lib/locale";
 
@@ -162,7 +163,7 @@ export function TopSeriesSearch({
                       {result.isAdult ? <AdultBadge size={18} /> : null}
                       {result.thumbnailUrl ? (
                         <Image
-                          src={result.thumbnailUrl}
+                          src={buildKakaoClientImageUrl(result.thumbnailUrl)}
                           alt={result.title}
                           width={132}
                           height={190}

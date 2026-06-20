@@ -7,6 +7,7 @@ import { FinishedBadge } from "@/app/_components/finished-badge";
 import { SeriesCardManageMenu } from "@/app/series/_components/series-card-manage-menu";
 import { SeriesLibraryActions } from "@/app/series/_components/series-library-actions";
 import { getStoredSeriesSummaries } from "@/lib/kakao-library-store";
+import { buildKakaoClientImageUrl } from "@/lib/kakao-request";
 import { getLocale } from "@/lib/locale";
 
 type SeriesSortKey = "title" | "updated" | "added";
@@ -251,7 +252,7 @@ export default async function SeriesPage(props: SeriesPageProps) {
                       ) : null}
                       {entry.posterThumbnailUrl ? (
                         <Image
-                          src={entry.posterThumbnailUrl}
+                          src={buildKakaoClientImageUrl(entry.posterThumbnailUrl)}
                           alt={entry.title}
                           width={480}
                           height={623}

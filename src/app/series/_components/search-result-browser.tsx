@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { AdultBadge } from "@/app/_components/adult-badge";
 import { SeriesSelectionModal } from "@/app/series/_components/series-selection-modal";
+import { buildKakaoClientImageUrl } from "@/lib/kakao-request";
 import type { KakaoSearchResult } from "@/lib/kakao-search";
 import type { Locale } from "@/lib/locale";
 
@@ -59,7 +60,7 @@ export function SearchResultBrowser({
                 {result.isAdult ? <AdultBadge /> : null}
                 {result.thumbnailUrl ? (
                   <Image
-                    src={result.thumbnailUrl}
+                    src={buildKakaoClientImageUrl(result.thumbnailUrl)}
                     alt={result.title}
                     width={132}
                     height={190}

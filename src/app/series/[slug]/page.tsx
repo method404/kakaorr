@@ -3,34 +3,15 @@ import { notFound } from "next/navigation";
 import { AdultBadge } from "@/app/_components/adult-badge";
 import { AdminShell } from "@/app/_components/admin-shell";
 import { FinishedBadge } from "@/app/_components/finished-badge";
+import { LocalizedDateTime } from "@/app/_components/localized-date-time";
 import { SeriesDetailActions } from "@/app/series/_components/series-detail-actions";
 import { SeriesDetailAutoRefresh } from "@/app/series/_components/series-detail-auto-refresh";
 import { SeriesEpisodeManageMenu } from "@/app/series/_components/series-episode-manage-menu";
 import { OpenStoragePathButton } from "@/app/series/_components/open-storage-path-button";
 import { SeriesSynopsis } from "@/app/series/_components/series-synopsis";
 import { getStoredSeriesDetail } from "@/lib/kakao-library-store";
+import { buildKakaoClientImageUrl } from "@/lib/kakao-request";
 import { getLocale } from "@/lib/locale";
-
-function formatTimestamp(value: string | null | undefined, locale: "ko" | "en") {
-  if (!value || value === "-") {
-    return "-";
-  }
-
-  const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-
-  return new Intl.DateTimeFormat(locale === "ko" ? "ko-KR" : "en-US", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  }).format(date);
-}
 
 function getEpisodeStateLabel(
   episode: {
@@ -150,7 +131,7 @@ export default async function SeriesDetailPage({
             ) : null}
             {summary.posterThumbnailUrl ? (
               <Image
-                src={summary.posterThumbnailUrl}
+                src={buildKakaoClientImageUrl(summary.posterThumbnailUrl)}
                 alt={summary.title}
                 width={480}
                 height={623}
@@ -183,7 +164,10 @@ export default async function SeriesDetailPage({
                 <div className="series-detail-meta">
                   <span>{summary.authors || "-"}</span>
                   <span>{labels.published} {summary.publishDescription || "-"}</span>
-                  <span>{labels.updatedAt} {formatTimestamp(summary.updatedAt, locale)}</span>
+                  <span>
+                    {labels.updatedAt}{" "}
+                    <LocalizedDateTime value={summary.updatedAt} locale={locale} />
+                  </span>
                 </div>
 
                 {overview.description ? (
@@ -206,7 +190,12 @@ export default async function SeriesDetailPage({
               </article>
               <article className="series-stat-card">
                 <span>{labels.nextFree}</span>
-                <strong>{formatTimestamp(nextFreeEpisode?.freeAt ?? summary.nextCheck, locale)}</strong>
+                <strong>
+                  <LocalizedDateTime
+                    value={nextFreeEpisode?.freeAt ?? summary.nextCheck}
+                    locale={locale}
+                  />
+                </strong>
               </article>
               <article className="series-stat-card">
                 <span>{labels.folder}</span>
@@ -237,7 +226,7 @@ export default async function SeriesDetailPage({
                       <div className="series-episode-thumb">
                         {episode.thumbnailUrl ? (
                           <Image
-                            src={episode.thumbnailUrl}
+                            src={buildKakaoClientImageUrl(episode.thumbnailUrl)}
                             alt={episode.title}
                             width={202}
                             height={120}
@@ -252,7 +241,10 @@ export default async function SeriesDetailPage({
                       <strong>{episode.title}</strong>
                     </td>
                     <td className="series-episode-airdate">
-                      {formatTimestamp(getEpisodePublicDate(episode), locale)}
+                      <LocalizedDateTime
+                        value={getEpisodePublicDate(episode)}
+                        locale={locale}
+                      />
                     </td>
                     <td className="series-episode-status-cell">
                       <div className="series-episode-status-stack">

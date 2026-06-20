@@ -514,11 +514,41 @@ function buildEpisodeArchiveManifest(
   };
 }
 
+function normalizeLegacyLockedManifest(
+  manifest: StoredKakaoEpisodeArchiveManifest | null,
+) {
+  if (!manifest) {
+    return null;
+  }
+
+  if (
+    manifest.crawl.status === "failed" &&
+    !manifest.episode.isFree &&
+    manifest.crawl.downloadedImageCount === 0 &&
+    manifest.crawl.errorMessage?.includes(
+      "Kakao JSON response was not returned: https://page.kakao.com/api/gateway/api/v1/viewer/data?",
+    )
+  ) {
+    return {
+      ...manifest,
+      crawl: {
+        ...manifest.crawl,
+        status: "preview",
+        errorMessage: null,
+      },
+    } satisfies StoredKakaoEpisodeArchiveManifest;
+  }
+
+  return manifest;
+}
+
 async function readEpisodeArchiveManifest(titleId: number, order: number) {
-  return readJsonFile<StoredKakaoEpisodeArchiveManifest | null>(
+  const manifest = await readJsonFile<StoredKakaoEpisodeArchiveManifest | null>(
     getSeriesEpisodeManifestPath(titleId, order),
     null,
   );
+
+  return normalizeLegacyLockedManifest(manifest);
 }
 
 async function writeEpisodeArchiveManifest(manifest: StoredKakaoEpisodeArchiveManifest) {
