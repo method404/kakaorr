@@ -560,9 +560,7 @@ function normalizeLegacyLockedManifest(
     manifest.crawl.status === "failed" &&
     !manifest.episode.isFree &&
     manifest.crawl.downloadedImageCount === 0 &&
-    manifest.crawl.errorMessage?.includes(
-      "Kakao JSON response was not returned: https://page.kakao.com/api/gateway/api/v1/viewer/data?",
-    )
+    manifest.crawl.errorMessage?.includes("/api/gateway/api/v1/viewer/data?")
   ) {
     return {
       ...manifest,

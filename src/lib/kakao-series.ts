@@ -457,7 +457,7 @@ export async function fetchKakaoEpisodeViewerData(
   productId: number,
 ): Promise<KakaoEpisodeViewerData> {
   const response = await fetchKakaoJson<RawKakaoViewerDataResponse>(
-    "https://page.kakao.com/api/gateway/api/v1/viewer/data?" +
+    "https://bff-page.kakao.com/api/gateway/api/v1/viewer/data?" +
       new URLSearchParams({
         series_id: String(seriesId),
         product_id: String(productId),
