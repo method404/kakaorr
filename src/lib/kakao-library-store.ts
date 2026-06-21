@@ -151,6 +151,7 @@ type SeriesStorageStats = {
   hasActiveDownload: boolean;
   failedEpisodes: number;
   sizeOnDisk: string;
+  retryImmediately: boolean;
 };
 
 type SeriesStorageSyncTask = {
@@ -164,6 +165,7 @@ type SeriesStorageSyncTask = {
 type WaitFreeUnlockState = {
   enabled: boolean;
   unavailableTicketTypes: Set<KakaoTicketType>;
+  retryImmediately: boolean;
 };
 
 declare global {
@@ -800,10 +802,13 @@ async function resolveViewerDataForEpisode(
 ) {
   async function fetchViewerDataWithUnlockRetry() {
     let lastError: unknown;
+    const retryDelaysMs = [0, 2000, 5000, 15000, 30000, 60000];
 
-    for (let attempt = 0; attempt < 3; attempt += 1) {
-      if (attempt > 0) {
-        await sleep(1000 * attempt);
+    for (let attempt = 0; attempt < retryDelaysMs.length; attempt += 1) {
+      const delayMs = retryDelaysMs[attempt];
+
+      if (delayMs > 0) {
+        await sleep(delayMs);
       }
 
       try {
@@ -842,7 +847,15 @@ async function resolveViewerDataForEpisode(
       }
 
       if (unlockResult.status === "unlocked" || unlockResult.status === "already-unlocked") {
-        return await fetchViewerDataWithUnlockRetry();
+        try {
+          return await fetchViewerDataWithUnlockRetry();
+        } catch (retryError) {
+          if (isKakaoEpisodeLocked(retryError)) {
+            unlockState.retryImmediately = true;
+          }
+
+          throw retryError;
+        }
       }
     } catch (unlockError) {
       console.warn(
@@ -1007,6 +1020,7 @@ async function syncSeriesStorage(
   const waitFreeUnlockState: WaitFreeUnlockState = {
     enabled: !snapshot.overview.isPaidOnly,
     unavailableTicketTypes: new Set(),
+    retryImmediately: false,
   };
 
   for (const episode of snapshot.episodes) {
@@ -1041,6 +1055,7 @@ async function syncSeriesStorage(
     hasActiveDownload,
     failedEpisodes,
     sizeOnDisk: formatBytes(await calculateDirectorySize(storagePath)),
+    retryImmediately: waitFreeUnlockState.retryImmediately,
   };
 }
 
@@ -1054,6 +1069,7 @@ function toLibraryEntry(
     sizeOnDisk?: string | undefined;
     availableEpisodes?: number | undefined;
     downloadedEpisodes?: number | undefined;
+    forceNextCheckNow?: boolean | undefined;
   },
 ): LibrarySeriesEntry {
   const now = new Date().toISOString();
@@ -1102,6 +1118,8 @@ function toLibraryEntry(
       options.monitorMode === "none"
       || !shouldKeepScheduled
         ? "-"
+        : options.forceNextCheckNow
+          ? now
         : computeNextCheck(
             checkIntervalHours,
             snapshot.overview.publishPeriod,
@@ -1229,6 +1247,7 @@ async function getStoredSeriesStats(
       hasActiveDownload: isQueuedSeries(entry.titleId),
       failedEpisodes: 0,
       sizeOnDisk: entry.sizeOnDisk,
+      retryImmediately: false,
     };
   }
 
@@ -1256,6 +1275,7 @@ async function getStoredSeriesStats(
     hasActiveDownload: manifestActive || isQueuedSeries(entry.titleId),
     failedEpisodes,
     sizeOnDisk: formatBytes(await calculateDirectorySize(entry.storagePath)),
+    retryImmediately: false,
   };
 }
 
@@ -1380,6 +1400,7 @@ async function processSeriesStorageSyncTask(
       availableEpisodes: storageSync.availableEpisodes,
       downloadedEpisodes: storageSync.downloadedEpisodes,
       sizeOnDisk: storageSync.sizeOnDisk,
+      forceNextCheckNow: storageSync.retryImmediately,
     });
 
     await writeLibraryEntry(entry);
@@ -1539,10 +1560,12 @@ export async function retrySeriesEpisodeInLibrary(titleId: number, order: number
   }
 
   await writeSeriesSnapshot(snapshot);
-  await syncEpisodeStorage(titleId, storagePath, episode, snapshot.overview, {
+  const unlockState: WaitFreeUnlockState = {
     enabled: !snapshot.overview.isPaidOnly,
     unavailableTicketTypes: new Set(),
-  });
+    retryImmediately: false,
+  };
+  await syncEpisodeStorage(titleId, storagePath, episode, snapshot.overview, unlockState);
   const latestSnapshot = await refreshSnapshotAfterStorageSync(titleId, snapshot);
 
   const stats = await getStoredSeriesStats(existing, latestSnapshot);
@@ -1554,6 +1577,7 @@ export async function retrySeriesEpisodeInLibrary(titleId: number, order: number
     availableEpisodes: stats.availableEpisodes,
     downloadedEpisodes: stats.downloadedEpisodes,
     sizeOnDisk: stats.sizeOnDisk,
+    forceNextCheckNow: unlockState.retryImmediately || stats.retryImmediately,
   });
   await writeLibraryEntry(updatedEntry);
   return updatedEntry;
