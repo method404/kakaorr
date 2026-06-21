@@ -2,8 +2,10 @@ import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises"
 import path from "node:path";
 import {
   fetchKakaoEpisodeViewerData,
+  getKakaoUnlockTicketTypes,
+  unlockKakaoEpisodeWithAvailableTickets,
   fetchKakaoSeriesSnapshot,
-  unlockKakaoWaitFreeEpisode,
+  type KakaoTicketType,
   type KakaoEpisodeViewerData,
   type KakaoSeriesEpisode,
   type KakaoSeriesOverview,
@@ -161,7 +163,7 @@ type SeriesStorageSyncTask = {
 
 type WaitFreeUnlockState = {
   enabled: boolean;
-  attempted: boolean;
+  unavailableTicketTypes: Set<KakaoTicketType>;
 };
 
 declare global {
@@ -406,6 +408,7 @@ function computeNextCheck(
     const nextDate = new Date(waitFreeNextUnlockAt);
 
     if (!Number.isNaN(nextDate.getTime())) {
+      nextDate.setMinutes(nextDate.getMinutes() + 1);
       return nextDate.toISOString();
     }
   }
@@ -414,6 +417,7 @@ function computeNextCheck(
     const nextDate = new Date(nextFreeAt);
 
     if (!Number.isNaN(nextDate.getTime())) {
+      nextDate.setMinutes(nextDate.getMinutes() + 1);
       return nextDate.toISOString();
     }
   }
@@ -762,11 +766,23 @@ function canAttemptWaitFreeUnlock(
   episode: KakaoSeriesEpisode,
   unlockState: WaitFreeUnlockState,
 ) {
-  if (unlockState.attempted || !unlockState.enabled || episode.isFree) {
+  if (!unlockState.enabled || episode.isFree) {
     return false;
   }
 
-  if (overview.isPaidOnly || !overview.isWaitFree) {
+  if (overview.isPaidOnly) {
+    return false;
+  }
+
+  const availableTicketTypes = getKakaoUnlockTicketTypes(
+    overview.waitfreePeriodByMinute,
+  );
+
+  if (
+    availableTicketTypes.every((ticketType) =>
+      unlockState.unavailableTicketTypes.has(ticketType),
+    )
+  ) {
     return false;
   }
 
@@ -779,6 +795,30 @@ async function resolveViewerDataForEpisode(
   episode: KakaoSeriesEpisode,
   unlockState: WaitFreeUnlockState,
 ) {
+  async function fetchViewerDataWithUnlockRetry() {
+    let lastError: unknown;
+
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      if (attempt > 0) {
+        await sleep(1000 * attempt);
+      }
+
+      try {
+        return await fetchKakaoEpisodeViewerData(titleId, episode.productId);
+      } catch (retryError) {
+        lastError = retryError;
+
+        if (!isKakaoEpisodeLocked(retryError)) {
+          throw retryError;
+        }
+      }
+    }
+
+    throw lastError instanceof Error
+      ? lastError
+      : new Error("Kakao viewer data was not available after unlock.");
+  }
+
   try {
     return await fetchKakaoEpisodeViewerData(titleId, episode.productId);
   } catch (error) {
@@ -786,13 +826,19 @@ async function resolveViewerDataForEpisode(
       throw error;
     }
 
-    unlockState.attempted = true;
-
     try {
-      const unlockResult = await unlockKakaoWaitFreeEpisode(episode.productId);
+      const unlockResult = await unlockKakaoEpisodeWithAvailableTickets(
+        episode.productId,
+        overview.waitfreePeriodByMinute,
+        unlockState.unavailableTicketTypes,
+      );
+
+      for (const ticketType of unlockResult.exhaustedTicketTypes) {
+        unlockState.unavailableTicketTypes.add(ticketType);
+      }
 
       if (unlockResult.status === "unlocked" || unlockResult.status === "already-unlocked") {
-        return await fetchKakaoEpisodeViewerData(titleId, episode.productId);
+        return await fetchViewerDataWithUnlockRetry();
       }
     } catch (unlockError) {
       console.warn(
@@ -955,8 +1001,8 @@ async function syncSeriesStorage(
 
   const manifests: StoredKakaoEpisodeArchiveManifest[] = [];
   const waitFreeUnlockState: WaitFreeUnlockState = {
-    enabled: snapshot.overview.isWaitFree,
-    attempted: false,
+    enabled: !snapshot.overview.isPaidOnly,
+    unavailableTicketTypes: new Set(),
   };
 
   for (const episode of snapshot.episodes) {
@@ -1490,8 +1536,8 @@ export async function retrySeriesEpisodeInLibrary(titleId: number, order: number
 
   await writeSeriesSnapshot(snapshot);
   await syncEpisodeStorage(titleId, storagePath, episode, snapshot.overview, {
-    enabled: snapshot.overview.isWaitFree,
-    attempted: false,
+    enabled: !snapshot.overview.isPaidOnly,
+    unavailableTicketTypes: new Set(),
   });
   const latestSnapshot = await refreshSnapshotAfterStorageSync(titleId, snapshot);
 

@@ -187,6 +187,11 @@ type RawKakaoWaitFreeTicketResponse = {
       charged_at?: string;
       charged_period_by_minute?: number;
     };
+    my?: {
+      ticket_own_count?: number;
+      ticket_rental_count?: number;
+      cash_amount?: number;
+    };
   };
   result_code?: number;
   response_time?: string;
@@ -216,6 +221,8 @@ export type KakaoWaitFreeTicketStatus = {
   userActivation: boolean;
   chargedAt: string | null;
   chargedPeriodByMinute: number | null;
+  ticketOwnCount: number;
+  ticketRentalCount: number;
   availableNow: boolean;
   nextUnlockAt: string | null;
 };
@@ -224,15 +231,35 @@ export type KakaoWaitFreeUnlockResult =
   | {
       status: "unlocked";
       message: string | null;
+      ticketType: KakaoTicketType;
+      exhaustedTicketTypes: KakaoTicketType[];
     }
   | {
       status: "already-unlocked";
       message: string | null;
+      ticketType: KakaoTicketType;
+      exhaustedTicketTypes: KakaoTicketType[];
     }
   | {
       status: "unavailable";
       message: string | null;
+      ticketType: KakaoTicketType | null;
+      exhaustedTicketTypes: KakaoTicketType[];
     };
+
+export type KakaoTicketType = "RT03" | "RT05" | "RT06";
+
+export function getKakaoUnlockTicketTypes(waitfreePeriodByMinute: number | null) {
+  if (waitfreePeriodByMinute === 2880) {
+    return ["RT03", "RT05"] satisfies KakaoTicketType[];
+  }
+
+  if (waitfreePeriodByMinute === 1440) {
+    return ["RT06", "RT05"] satisfies KakaoTicketType[];
+  }
+
+  return ["RT05"] satisfies KakaoTicketType[];
+}
 
 type FetchKakaoSeriesSnapshotOptions = {
   locale?: Locale;
@@ -520,8 +547,9 @@ export async function fetchKakaoEpisodeViewerData(
   };
 }
 
-export async function unlockKakaoWaitFreeEpisode(
+async function unlockKakaoEpisodeWithTicket(
   productId: number,
+  ticketType: KakaoTicketType,
 ): Promise<KakaoWaitFreeUnlockResult> {
   const response = await fetchKakao(
     "https://bff-page.kakao.com/api/gateway/api/v1/ticket/use",
@@ -533,7 +561,7 @@ export async function unlockKakaoWaitFreeEpisode(
       },
       body: new URLSearchParams({
         product_id: String(productId),
-        ticket_type: "RT05",
+        ticket_type: ticketType,
       }).toString(),
     },
   );
@@ -544,6 +572,8 @@ export async function unlockKakaoWaitFreeEpisode(
     return {
       status: "unlocked",
       message,
+      ticketType,
+      exhaustedTicketTypes: [],
     };
   }
 
@@ -551,12 +581,48 @@ export async function unlockKakaoWaitFreeEpisode(
     return {
       status: "already-unlocked",
       message,
+      ticketType,
+      exhaustedTicketTypes: [],
     };
   }
 
   return {
     status: "unavailable",
     message,
+    ticketType,
+    exhaustedTicketTypes: [ticketType],
+  };
+}
+
+export async function unlockKakaoEpisodeWithAvailableTickets(
+  productId: number,
+  waitfreePeriodByMinute: number | null,
+  unavailableTicketTypes: ReadonlySet<KakaoTicketType> = new Set(),
+): Promise<KakaoWaitFreeUnlockResult> {
+  const exhaustedTicketTypes: KakaoTicketType[] = [];
+
+  for (const ticketType of getKakaoUnlockTicketTypes(waitfreePeriodByMinute)) {
+    if (unavailableTicketTypes.has(ticketType)) {
+      continue;
+    }
+
+    const result = await unlockKakaoEpisodeWithTicket(productId, ticketType);
+
+    if (result.status !== "unavailable") {
+      return {
+        ...result,
+        exhaustedTicketTypes,
+      };
+    }
+
+    exhaustedTicketTypes.push(ticketType);
+  }
+
+  return {
+    status: "unavailable",
+    message: null,
+    ticketType: null,
+    exhaustedTicketTypes,
   };
 }
 
@@ -582,7 +648,10 @@ export async function fetchKakaoWaitFreeTicketStatus(
       : null;
   const userActivation = waitfree.user_activation ?? false;
   const chargedComplete = waitfree.charged_complete ?? false;
-  const availableNow = userActivation && chargedComplete;
+  const ticketOwnCount = Math.max(0, payload.result?.my?.ticket_own_count ?? 0);
+  const ticketRentalCount = Math.max(0, payload.result?.my?.ticket_rental_count ?? 0);
+  const hasImmediateTicket = ticketOwnCount > 0 || ticketRentalCount > 0;
+  const availableNow = (userActivation && chargedComplete) || hasImmediateTicket;
 
   return {
     chargedComplete,
@@ -592,6 +661,8 @@ export async function fetchKakaoWaitFreeTicketStatus(
       typeof waitfree.charged_period_by_minute === "number"
         ? waitfree.charged_period_by_minute
         : null,
+    ticketOwnCount,
+    ticketRentalCount,
     availableNow,
     nextUnlockAt: availableNow ? new Date().toISOString() : chargedAt,
   };
