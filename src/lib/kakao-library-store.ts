@@ -775,7 +775,10 @@ function canAttemptWaitFreeUnlock(
   }
 
   const availableTicketTypes = getKakaoUnlockTicketTypes(
-    overview.waitfreePeriodByMinute,
+    {
+      businessModel: overview.businessModel,
+      waitfreePeriodByMinute: overview.waitfreePeriodByMinute,
+    },
   );
 
   if (
@@ -829,6 +832,7 @@ async function resolveViewerDataForEpisode(
     try {
       const unlockResult = await unlockKakaoEpisodeWithAvailableTickets(
         episode.productId,
+        overview.businessModel,
         overview.waitfreePeriodByMinute,
         unlockState.unavailableTicketTypes,
       );

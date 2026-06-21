@@ -249,7 +249,27 @@ export type KakaoWaitFreeUnlockResult =
 
 export type KakaoTicketType = "RT03" | "RT05" | "RT06";
 
-export function getKakaoUnlockTicketTypes(waitfreePeriodByMinute: number | null) {
+type KakaoUnlockTicketTypeOptions = {
+  businessModel?: string | null;
+  waitfreePeriodByMinute: number | null;
+};
+
+export function getKakaoUnlockTicketTypes({
+  businessModel,
+  waitfreePeriodByMinute,
+}: KakaoUnlockTicketTypeOptions) {
+  if (businessModel === "M") {
+    if (waitfreePeriodByMinute === 2880) {
+      return ["RT05", "RT03"] satisfies KakaoTicketType[];
+    }
+
+    if (waitfreePeriodByMinute === 1440) {
+      return ["RT05", "RT06"] satisfies KakaoTicketType[];
+    }
+
+    return ["RT05"] satisfies KakaoTicketType[];
+  }
+
   if (waitfreePeriodByMinute === 2880) {
     return ["RT03", "RT05"] satisfies KakaoTicketType[];
   }
@@ -596,12 +616,16 @@ async function unlockKakaoEpisodeWithTicket(
 
 export async function unlockKakaoEpisodeWithAvailableTickets(
   productId: number,
+  businessModel: string | null,
   waitfreePeriodByMinute: number | null,
   unavailableTicketTypes: ReadonlySet<KakaoTicketType> = new Set(),
 ): Promise<KakaoWaitFreeUnlockResult> {
   const exhaustedTicketTypes: KakaoTicketType[] = [];
 
-  for (const ticketType of getKakaoUnlockTicketTypes(waitfreePeriodByMinute)) {
+  for (const ticketType of getKakaoUnlockTicketTypes({
+    businessModel,
+    waitfreePeriodByMinute,
+  })) {
     if (unavailableTicketTypes.has(ticketType)) {
       continue;
     }
