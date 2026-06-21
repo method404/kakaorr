@@ -166,6 +166,7 @@ type WaitFreeUnlockState = {
   enabled: boolean;
   unavailableTicketTypes: Set<KakaoTicketType>;
   retryImmediately: boolean;
+  lastUnlockDebugMessage: string | null;
 };
 
 declare global {
@@ -842,6 +843,20 @@ async function resolveViewerDataForEpisode(
         unlockState.unavailableTicketTypes,
       );
 
+      unlockState.lastUnlockDebugMessage =
+        unlockResult.status === "unavailable"
+          ? [
+              "unlock-unavailable",
+              unlockResult.ticketType ? `ticket=${unlockResult.ticketType}` : null,
+              unlockResult.message ? `message=${unlockResult.message}` : null,
+              unlockResult.exhaustedTicketTypes.length > 0
+                ? `exhausted=${unlockResult.exhaustedTicketTypes.join(",")}`
+                : null,
+            ]
+              .filter(Boolean)
+              .join(" | ")
+          : null;
+
       for (const ticketType of unlockResult.exhaustedTicketTypes) {
         unlockState.unavailableTicketTypes.add(ticketType);
       }
@@ -989,7 +1004,7 @@ async function syncEpisodeStorage(
         imageCount: episode.pageCount ?? 0,
         downloadedImageCount: 0,
         downloadedAt: null,
-        errorMessage: null,
+        errorMessage: unlockState.lastUnlockDebugMessage,
       });
 
       await writeEpisodeArchiveManifest(previewManifest);
@@ -1021,6 +1036,7 @@ async function syncSeriesStorage(
     enabled: !snapshot.overview.isPaidOnly,
     unavailableTicketTypes: new Set(),
     retryImmediately: false,
+    lastUnlockDebugMessage: null,
   };
 
   for (const episode of snapshot.episodes) {
@@ -1564,6 +1580,7 @@ export async function retrySeriesEpisodeInLibrary(titleId: number, order: number
     enabled: !snapshot.overview.isPaidOnly,
     unavailableTicketTypes: new Set(),
     retryImmediately: false,
+    lastUnlockDebugMessage: null,
   };
   await syncEpisodeStorage(titleId, storagePath, episode, snapshot.overview, unlockState);
   const latestSnapshot = await refreshSnapshotAfterStorageSync(titleId, snapshot);

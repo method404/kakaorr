@@ -576,8 +576,25 @@ async function unlockKakaoEpisodeWithTicket(
     {
       method: "POST",
       headers: {
+        accept: "application/json, text/plain, */*",
+        "accept-language": "ko,en-US;q=0.9,en;q=0.8",
+        "cache-control": "no-cache",
         "content-type": "application/x-www-form-urlencoded",
+        dnt: "1",
+        origin: "https://page.kakao.com",
+        pragma: "no-cache",
+        priority: "u=1, i",
         referer: "https://page.kakao.com/",
+        "sec-ch-ua":
+          "\"Google Chrome\";v=\"137\", \"Chromium\";v=\"137\", \"Not/A)Brand\";v=\"24\"",
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": "\"macOS\"",
+        "sec-fetch-dest": "empty",
+        "sec-fetch-mode": "cors",
+        "sec-fetch-site": "same-site",
+        "sec-gpc": "1",
+        "user-agent":
+          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36",
       },
       body: new URLSearchParams({
         product_id: String(productId),
@@ -621,6 +638,8 @@ export async function unlockKakaoEpisodeWithAvailableTickets(
   unavailableTicketTypes: ReadonlySet<KakaoTicketType> = new Set(),
 ): Promise<KakaoWaitFreeUnlockResult> {
   const exhaustedTicketTypes: KakaoTicketType[] = [];
+  let lastUnavailableMessage: string | null = null;
+  let lastUnavailableTicketType: KakaoTicketType | null = null;
 
   for (const ticketType of getKakaoUnlockTicketTypes({
     businessModel,
@@ -639,13 +658,15 @@ export async function unlockKakaoEpisodeWithAvailableTickets(
       };
     }
 
+    lastUnavailableMessage = result.message;
+    lastUnavailableTicketType = result.ticketType;
     exhaustedTicketTypes.push(ticketType);
   }
 
   return {
     status: "unavailable",
-    message: null,
-    ticketType: null,
+    message: lastUnavailableMessage,
+    ticketType: lastUnavailableTicketType,
     exhaustedTicketTypes,
   };
 }

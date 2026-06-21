@@ -116,6 +116,17 @@ function hasUsableKakaoCookies(cookies) {
   });
 }
 
+function hasPurchaseReadyKakaoCookies(cookies) {
+  const names = new Set(cookies.map((cookie) => cookie.name));
+
+  return (
+    names.has("_kau") &&
+    names.has("_kpwtkn") &&
+    names.has("_kadu") &&
+    names.has("_karb")
+  );
+}
+
 async function saveSession(kakaorrUrl, cookieHeader) {
   const response = await fetch(`${kakaorrUrl}/api/settings/kakao-session`, {
     method: "PUT",
@@ -162,6 +173,7 @@ async function fillLogin(page, username, password) {
 
 async function waitForSessionCookies(context, timeoutMs = 10 * 60 * 1000) {
   const startedAt = Date.now();
+  let ensuredContentPage = false;
 
   while (Date.now() - startedAt < timeoutMs) {
     const page = context.pages().at(-1) ?? (await context.newPage());
@@ -177,15 +189,29 @@ async function waitForSessionCookies(context, timeoutMs = 10 * 60 * 1000) {
       !url.includes("/relay/login") &&
       hasUsableKakaoCookies(cookies)
     ) {
-      return cookies;
+      if (hasPurchaseReadyKakaoCookies(cookies)) {
+        return cookies;
+      }
+
+      if (!ensuredContentPage) {
+        ensuredContentPage = true;
+        await page
+          .goto("https://page.kakao.com/content/61933312", {
+            waitUntil: "networkidle",
+            timeout: 30000,
+          })
+          .catch(() => undefined);
+      }
     }
 
     await new Promise((resolve) => {
-      setTimeout(resolve, 1500);
+      setTimeout(resolve, 2000);
     });
   }
 
-  throw new Error("Timed out waiting for KakaoPage session cookies.");
+  throw new Error(
+    "Timed out waiting for KakaoPage purchase-ready session cookies (_kadu/_karb).",
+  );
 }
 
 async function promptHidden(query) {
