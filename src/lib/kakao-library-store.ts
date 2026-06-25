@@ -1,4 +1,4 @@
-import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
   fetchKakaoEpisodeViewerData,
@@ -74,6 +74,10 @@ type StoredSeriesStorageMetadata = {
   savedAt: string;
   snapshot: KakaoSeriesSnapshot;
 };
+
+declare global {
+  var __kakaorrLibraryIndexWriteQueue: Promise<void> | undefined;
+}
 
 export type StoredKakaoEpisodeArchiveManifest = {
   titleId: number;
@@ -281,7 +285,9 @@ async function readJsonFile<T>(filePath: string, fallback: T): Promise<T> {
 
 async function writeJsonFile(filePath: string, value: unknown) {
   await ensureDir(path.dirname(filePath));
-  await writeFile(filePath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+  const tempPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
+  await writeFile(tempPath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+  await rename(tempPath, filePath);
 }
 
 async function writeBinaryFile(filePath: string, buffer: Uint8Array) {
@@ -317,6 +323,16 @@ function getStorageSyncCurrentRuns() {
   }
 
   return globalThis.__kakaorrStorageSyncCurrentRuns;
+}
+
+function enqueueLibraryIndexWrite<T>(operation: () => Promise<T>) {
+  const previous = globalThis.__kakaorrLibraryIndexWriteQueue ?? Promise.resolve();
+  const next = previous.catch(() => undefined).then(operation);
+  globalThis.__kakaorrLibraryIndexWriteQueue = next.then(
+    () => undefined,
+    () => undefined,
+  );
+  return next;
 }
 
 function isQueuedSeries(titleId: number) {
@@ -1240,16 +1256,18 @@ async function refreshSnapshotAfterStorageSync(
 }
 
 async function writeLibraryEntry(entry: LibrarySeriesEntry) {
-  const index = await readLibraryIndex();
-  const existingIndex = index.items.findIndex((item) => item.titleId === entry.titleId);
+  await enqueueLibraryIndexWrite(async () => {
+    const index = await readLibraryIndex();
+    const existingIndex = index.items.findIndex((item) => item.titleId === entry.titleId);
 
-  if (existingIndex >= 0) {
-    index.items[existingIndex] = entry;
-  } else {
-    index.items.unshift(entry);
-  }
+    if (existingIndex >= 0) {
+      index.items[existingIndex] = entry;
+    } else {
+      index.items.unshift(entry);
+    }
 
-  await writeLibraryIndex(index);
+    await writeLibraryIndex(index);
+  });
 }
 
 async function getStoredSeriesStats(
@@ -1681,38 +1699,43 @@ export async function forceRefreshAllStoredSeries() {
 }
 
 export async function unmonitorSeriesInLibrary(titleId: number) {
-  const index = await readLibraryIndex();
-  const existingIndex = index.items.findIndex((item) => item.titleId === titleId);
+  return enqueueLibraryIndexWrite(async () => {
+    const index = await readLibraryIndex();
+    const existingIndex = index.items.findIndex((item) => item.titleId === titleId);
 
-  if (existingIndex < 0) {
-    throw new Error(`Series ${titleId} is not in the library.`);
-  }
+    if (existingIndex < 0) {
+      throw new Error(`Series ${titleId} is not in the library.`);
+    }
 
-  const existing = index.items[existingIndex];
-  const updatedEntry: LibrarySeriesEntry = {
-    ...existing,
-    monitored: false,
-    monitorMode: "none",
-    nextCheck: "-",
-    updatedAt: new Date().toISOString(),
-  };
+    const existing = index.items[existingIndex];
+    const updatedEntry: LibrarySeriesEntry = {
+      ...existing,
+      monitored: false,
+      monitorMode: "none",
+      nextCheck: "-",
+      updatedAt: new Date().toISOString(),
+    };
 
-  index.items[existingIndex] = updatedEntry;
-  await writeLibraryIndex(index);
-  return updatedEntry;
+    index.items[existingIndex] = updatedEntry;
+    await writeLibraryIndex(index);
+    return updatedEntry;
+  });
 }
 
 export async function deleteSeriesFromLibrary(titleId: number) {
-  const index = await readLibraryIndex();
-  const existingIndex = index.items.findIndex((item) => item.titleId === titleId);
+  const existing = await enqueueLibraryIndexWrite(async () => {
+    const index = await readLibraryIndex();
+    const existingIndex = index.items.findIndex((item) => item.titleId === titleId);
 
-  if (existingIndex < 0) {
-    throw new Error(`Series ${titleId} is not in the library.`);
-  }
+    if (existingIndex < 0) {
+      throw new Error(`Series ${titleId} is not in the library.`);
+    }
 
-  const existing = index.items[existingIndex];
-  index.items.splice(existingIndex, 1);
-  await writeLibraryIndex(index);
+    const entry = index.items[existingIndex];
+    index.items.splice(existingIndex, 1);
+    await writeLibraryIndex(index);
+    return entry;
+  });
 
   globalThis.__kakaorrStorageSyncQueue = getStorageSyncQueue().filter(
     (task) => task.snapshot.overview.seriesId !== titleId,
@@ -1727,45 +1750,47 @@ export async function deleteSeriesFromLibrary(titleId: number) {
 }
 
 export async function updateSeriesSettings(input: UpdateSeriesSettingsInput) {
-  const index = await readLibraryIndex();
-  const existingIndex = index.items.findIndex((item) => item.titleId === input.titleId);
+  return enqueueLibraryIndexWrite(async () => {
+    const index = await readLibraryIndex();
+    const existingIndex = index.items.findIndex((item) => item.titleId === input.titleId);
 
-  if (existingIndex < 0) {
-    throw new Error(`Series ${input.titleId} is not in the library.`);
-  }
+    if (existingIndex < 0) {
+      throw new Error(`Series ${input.titleId} is not in the library.`);
+    }
 
-  const existing = index.items[existingIndex];
-  const snapshot = await readSeriesSnapshot(input.titleId);
-  const checkIntervalHours = clampCheckIntervalHours(input.checkIntervalHours);
-  const shouldKeepScheduled =
-    snapshot
-      ? shouldKeepSeriesScheduled({
-          isFinished: existing.isFinished,
-          isWaitFree: snapshot.overview.isWaitFree,
-          totalEpisodes: snapshot.episodes.length,
-          downloadedEpisodes: existing.downloadedEpisodes,
-        })
-      : !existing.isFinished;
-  const updatedEntry: LibrarySeriesEntry = {
-    ...existing,
-    checkIntervalHours,
-    nextCheck:
-      existing.monitored && shouldKeepScheduled
-        ? computeNextCheck(
-            checkIntervalHours,
-            existing.publishDescription,
-            existing.isFinished,
-            snapshot?.nextFreeEpisode?.freeAt ?? null,
-            snapshot?.waitFreeTicket?.nextUnlockAt ?? null,
-            snapshot?.waitFreeTicket?.availableNow ?? false,
-          )
-        : "-",
-    updatedAt: new Date().toISOString(),
-  };
+    const existing = index.items[existingIndex];
+    const snapshot = await readSeriesSnapshot(input.titleId);
+    const checkIntervalHours = clampCheckIntervalHours(input.checkIntervalHours);
+    const shouldKeepScheduled =
+      snapshot
+        ? shouldKeepSeriesScheduled({
+            isFinished: existing.isFinished,
+            isWaitFree: snapshot.overview.isWaitFree,
+            totalEpisodes: snapshot.episodes.length,
+            downloadedEpisodes: existing.downloadedEpisodes,
+          })
+        : !existing.isFinished;
+    const updatedEntry: LibrarySeriesEntry = {
+      ...existing,
+      checkIntervalHours,
+      nextCheck:
+        existing.monitored && shouldKeepScheduled
+          ? computeNextCheck(
+              checkIntervalHours,
+              existing.publishDescription,
+              existing.isFinished,
+              snapshot?.nextFreeEpisode?.freeAt ?? null,
+              snapshot?.waitFreeTicket?.nextUnlockAt ?? null,
+              snapshot?.waitFreeTicket?.availableNow ?? false,
+            )
+          : "-",
+      updatedAt: new Date().toISOString(),
+    };
 
-  index.items[existingIndex] = updatedEntry;
-  await writeLibraryIndex(index);
-  return updatedEntry;
+    index.items[existingIndex] = updatedEntry;
+    await writeLibraryIndex(index);
+    return updatedEntry;
+  });
 }
 
 export function getSeriesStorageSyncActivityTasks(): ActivityTask[] {
